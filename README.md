@@ -1,8 +1,8 @@
-Impact of coronavirus disease (COVID-19) pandemic on physical activity
-of patients with cardiac implantable electronic devices
+# Reproducible Scripts for the Publication: 
+
+Huttelmaier MT, Gabel A, Seewald MS, Frantz S, Störk S, Fischer TH. __Impact of coronavirus disease (COVID-19) pandemic on physical activity of patients with cardiac implantable electronic devices__.
+
 ================
-Alexander Gabel
-7/29/2021
 
 -   [Setup libraries and Functions](#setup-libraries-and-functions)
 -   [Data set](#data-set)
