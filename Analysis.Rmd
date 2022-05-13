@@ -2,16 +2,20 @@
 title: Impact of coronavirus disease (COVID-19) pandemic on physical activity of patients
   with cardiac implantable electronic devices
 author: "Alexander Gabel"
-date: "7/29/2021"
-always_allow_html: true
+date: "05/13/2022"
+always_allow_html: yes
 output:
   github_document:
     df_print: paged
-    # code_folding: hide
     toc: true
     toc_depth: 2
-    # toc_float:
-    #   collapsed: FALSE
+  html_document:
+    df_print: paged
+    code_folding: hide
+    toc: yes
+    toc_depth: '2'
+    toc_float:
+      collapsed: no
 ---
 
 # Setup libraries and Functions
@@ -117,24 +121,37 @@ summarise_intervals <- function(ds, variable, add = F){
   return(ds_interval)
 }
 
-plot_longitude <- function(ds, x, variable, ylim, lockDownDates, first_cases, lockdownLabs, n_subs){
+plot_longitude <- function(ds, x, variable, ylim, lockDownDates, first_cases, lockdownLabs, n_subs, sel_year){
   
   mean_overall <- mean(ds %>% pull(!!sym(variable)))
   
   segment_means_df <- data.frame(ds %>% group_by(Interval) %>% summarise(mean = mean(!!sym(variable))), 
                                  xstart = lockDownDates[-length(lockDownDates)], xend = lockDownDates[-1]-1)
   
+  season_cols <- alpha(colour = c("gray", "green4", "orange", "tan4"), alpha = 0.6)
+  
+  season_bars <- data.frame(xstart = as.Date(c("2019-01-01", "2019-03-01", "2019-06-01", 
+                                               "2019-09-01", "2019-12-01")), 
+                            xend = as.Date(c("2019-03-01", "2019-06-01", "2019-09-01", 
+                                               "2019-12-01", "2019-12-31")),
+                            color = c(season_cols, season_cols[1]),
+                            season = c("winter", "spring", "summer", "autmn", "winter")) %>%
+                  dplyr::mutate(xstart = lubridate::`year<-`(xstart, sel_year), 
+                                xend= lubridate::`year<-`(xend, sel_year))
+  
   ggplot2::ggplot(data = ds, ggplot2::aes_string(x = x, y = variable)) + ggplot2::geom_line() + 
     ggplot2::theme(legend.position = "none") +
     ggStyle_ts +
+    geom_segment(data = season_bars, aes(x = xstart, xend = xend), y = ylim[1]-0.25, yend = ylim[1]-0.25,  
+                 col = season_bars$color, lwd = 6, ) + 
     ggplot2::geom_hline(yintercept = mean_overall, col = "green4", lwd = 1, linetype = "dashed") + 
     ggplot2::geom_vline(xintercept = lockDownDates) + 
     ggplot2::geom_vline(xintercept = first_cases, col ="red", linetype = "dashed") + 
     ggplot2::annotate(geom="label", x = lockdownLabs, 
                       y = max(ylim), 
                       label = LETTERS[1:6]) + ggplot2::ylim(ylim) + 
-    geom_segment(data = segment_means_df, aes(x = xstart, xend = xend, y = mean, yend = mean), lwd = 1, col = "blue2") + 
-    ggplot2::scale_x_date(breaks = lockDownDates) 
+    geom_segment(data = segment_means_df, aes(x = xstart, xend = xend, y = mean, yend = mean), lwd = 1, col = "blue2") +
+    ggplot2::scale_x_date(breaks = lockDownDates, expand = c(0,0)) 
     # ggplot2::annotate(geom="text", x = lockDownDates[3] + 40, 
     #                   y = min(ylim), 
     #                   label = paste0("#Subjects: ", n_subs))
@@ -573,11 +590,17 @@ rankTest_pairwise <- function(ds, variable, consider_gender = T){
     fc_stats <- ds %>% filter(Interval %in% intGrp) %>% dplyr::select(ID, Interval, !!sym(variable), AgeCat) %>% 
       tidyr::pivot_wider(names_from = Interval, values_from = !!sym(variable)) %>% mutate(FC = !!sym(intGrp[1])/!!sym(intGrp[2]))  
     
+    print(fc_stats)
+    
     fc_desc <- fc_stats %>% group_by(AgeCat) %>% summarise(FC = paste0(round(mean(FC),3), " ± ", round(sd(FC),3))) %>% 
       tidyr::pivot_wider(names_from = AgeCat, values_from = FC) %>% mutate(Comparison = paste0(intGrp, collapse = ""))
     
     colnames(fc_desc)[1:2] <- c("FC(old)", "FC(young)")
-    fc_wilcox <- fc_stats %>% rstatix::wilcox_test(FC ~AgeCat)
+    
+    fc_wilcox <- fc_stats %>% group_by(AgeCat) %>% count() %>% pivot_wider(id_cols = c(AgeCat, n), names_from = AgeCat, values_from = n)
+    fc_wilcox <- data.frame(Test = "noTest", group1 = colnames(fc_wilcox)[1], group2 = colnames(fc_wilcox)[2], "n1" = as.numeric(fc_wilcox[1,1]), "n2" = as.numeric(fc_wilcox[1,2]), statistic = "noStat", p = 1)
+    
+    try(fc_wilcox <- fc_stats %>% rstatix::wilcox_test(FC ~ AgeCat), silent = T)
     
     cbind(fc_desc, fc_wilcox)
   })
@@ -652,13 +675,17 @@ rankTest_pairwise <- function(ds, variable, consider_gender = T){
       tidyr::pivot_wider(names_from = Gender, values_from = FC) %>% mutate(Comparison = paste0(intGrp, collapse = ""))
     
     colnames(fc_desc)[1:2] <- c("FC(male)", "FC(female)")
-    fc_wilcox <- fc_stats %>% rstatix::wilcox_test(FC ~ Gender)
+    
+    fc_wilcox <- fc_stats %>% group_by(Gender) %>% count() %>% pivot_wider(id_cols = c(Gender, n), names_from = Gender, values_from = n)
+    fc_wilcox <- data.frame(Test = "noTest", group1 = colnames(fc_wilcox)[1], group2 = colnames(fc_wilcox)[2], "n1" = as.numeric(fc_wilcox[1,1]), "n2" = as.numeric(fc_wilcox[1,2]), statistic = "noStat", p = 1)
+    
+    try(fc_wilcox <- fc_stats %>% rstatix::wilcox_test(FC ~ Gender), silent = T)
     
     cbind(fc_desc, fc_wilcox)
   })
   
   fc_stats_pairs_gender <- do.call("rbind", FC_stats)[,-4]
-  fc_stats_pairs_gender <- fc_stats_pairs_gender %>% dplyr::mutate("p.adj(BY)" = p.adjust(p,"BY"))
+  fc_stats_pairs_gender <- fc_stats_pairs_gender %>% as.data.frame() %>% dplyr::mutate("p.adj(BY)" = p.adjust(p,"BY"))
     
      pairs_result_list <- list(stats = stats_groups, 
                                stats_groups_gender = stats_groups_gender,
@@ -885,38 +912,52 @@ n_subjects <- length(unique(ds_activity$ID))
 
 ### Mean activity and seasonal variations in 2019 and 2020
 
-```{r, fig.width=12, fig.height=7}
-ylim_y <- ds_act_date %>% summarise(min = floor(min(!!sym(variable))), max = ceiling(max(!!sym(variable)))) %>% as.numeric()
+```{r, fig.width=8, fig.height=6}
+ylim_y <- ds_act_date %>% summarise(min = floor(min(!!sym(variable))), 
+                                    max = ceiling(max(!!sym(variable)))) %>% as.numeric()
         
-long_plt_19 <- plot_longitude(ds = ds_act_date %>% filter(year == 2019), x = x, variable = variable, ylim = ylim_y, 
-                                lockDownDates = lockDownDates - 365, first_cases = first_cases - 365, lockdownLabs = lockdownLabs - 365, n_subs = n_subjects)
-long_plt_20 <- plot_longitude(ds = ds_act_date %>% filter(year == 2020), x = x, variable = variable, ylim = ylim_y, 
-                                lockDownDates = lockDownDates, first_cases = first_cases, lockdownLabs = lockdownLabs, n_subs = n_subjects)
+
+long_plt_19 <- plot_longitude(ds = ds_act_date %>% filter(year == 2019), 
+                              x = x, variable = variable, ylim = ylim_y, 
+                              lockDownDates = lockDownDates - 365, 
+                              first_cases = first_cases - 365, 
+                              lockdownLabs = lockdownLabs - 365, 
+                              n_subs = n_subjects, sel_year = 2019)
+
+long_plt_20 <- plot_longitude(ds = ds_act_date %>% filter(year == 2020), 
+                              x = x, variable = variable, ylim = ylim_y, 
+                              lockDownDates = lockDownDates, 
+                              first_cases = first_cases, 
+                              lockdownLabs = lockdownLabs, 
+                              n_subs = n_subjects, sel_year = 2020)
   
 long_plot <- cowplot::plot_grid(
     long_plt_19 + 
       ggplot2::xlab("Time intervals") +
       ggplot2::ylab("Mean physical activity (% of day)") +
       ggplot2::ggtitle(label = "2019") + 
-      ggplot2::theme(axis.text.x = ggplot2::element_blank(), 
+      ggplot2::theme(plot.title = ggplot2::element_text(face = "bold.italic"),
+                     axis.text.x = ggplot2::element_blank(), 
                      plot.margin = ggplot2::margin(t = 0, b=0)),
     
     long_plt_20 + 
       ggplot2::xlab("Time intervals") + 
       ggplot2::ylab("Mean physical activity (% of day)") +
-      ggplot2::ggtitle(label = "2019") + 
-      ggplot2::theme(axis.text.x = ggplot2::element_blank(),
-                     plot.margin = ggplot2::margin(t = 0, b=0)),
+      ggplot2::ggtitle(label = "2020") + 
+      ggplot2::theme(plot.title = ggplot2::element_text(face = "bold.italic"),
+                     axis.text.x = ggplot2::element_blank(),
+                     plot.margin = ggplot2::margin(t = 0, b=0),
+                     ),
     nrow = 2,ncol = 1)
 
 long_plot
-ggsave(plot = long_plot, filename = paste0(file_name, "_longitude_plot.pdf"), device = "pdf", height = 7.5, width = 15)
-ggsave(plot = long_plot, filename = paste0(file_name, "_longitude_plot.svg"), device = "svg", height = 7.5, width = 15)
+ggsave(plot = long_plot, filename = paste0(file_name, "_longitude_plot.pdf"), device = "pdf", height = 6, width = 8)
+ggsave(plot = long_plot, filename = paste0(file_name, "_longitude_plot.svg"), device = "svg", height = 6, width = 8)
 ```
 
 ## Mean weekday physical activity of patients
 
-Here we want to analyse the recurring reduction of physical acitvity of patients during the end of the week, especially on Sundays.
+Here, we want to analyse the recurring reduction of physical acitvity of patients during the end of the week, especially on Sundays.
 We calculate the average weekday activity of each patient during each time interval. The average weekday activity for each patient at each time interval is defined as the arithmetic mean of each patient over the same weekday (Monday, Tuesday, ...) during one particular time interval. To determine significant differences, we perform a paired non-parametric test for each time interval and each pariwise combination of weekdays.
 
 ```{r, message = FALSE, results='hide'}
@@ -1375,7 +1416,7 @@ bxp1920_rhr
 
 ## AAB within 2019 and 2020
 ```{r, message = FALSE, results='hide'}
-variable = "ArtrialArrhythmicBurden"
+variable = "AtrialArrhythmicBurden"
 
 plot.dir <- file.path(super_plot.dir, variable)
   
@@ -1387,6 +1428,8 @@ file_name <- file.path(plot.dir, paste0(variable,""))
 
 ds_aab_filter <- filter_complete_dataset(ds = data_set, variable = variable)
 ds_aab_interval <- summarise_intervals(ds = ds_aab_filter, variable = variable)
+
+ds_aab_interval <- ds_aab_interval %>% filter(!!sym(variable) != 0) %>% group_by(ID) %>% mutate(n = length(ID)) %>% filter(n == 12) %>% dplyr::select(-n)
 
 age_time_aab <- rankTest_pairwise(ds = ds_aab_interval, variable = variable, consider_gender = T)
 

@@ -27,8 +27,8 @@ Reproducible Script
         effects](#figure-2-without-consideration-of-gender-effects)
     -   [Figure 3 without consideration of gender
         effects](#figure-3-without-consideration-of-gender-effects)
-    -   [Figure 4.1](#figure-4.1)
-    -   [Figure 4.2](#figure-4.2)
+    -   [Figure 4.1](#figure-41)
+    -   [Figure 4.2](#figure-42)
 -   [Average Heart Rate (HR)](#average-heart-rate-hr)
     -   [HR within 2019 and 2020](#hr-within-2019-and-2020)
     -   [Figure 5:](#figure-5)
@@ -150,24 +150,37 @@ summarise_intervals <- function(ds, variable, add = F){
   return(ds_interval)
 }
 
-plot_longitude <- function(ds, x, variable, ylim, lockDownDates, first_cases, lockdownLabs, n_subs){
+plot_longitude <- function(ds, x, variable, ylim, lockDownDates, first_cases, lockdownLabs, n_subs, sel_year){
   
   mean_overall <- mean(ds %>% pull(!!sym(variable)))
   
   segment_means_df <- data.frame(ds %>% group_by(Interval) %>% summarise(mean = mean(!!sym(variable))), 
                                  xstart = lockDownDates[-length(lockDownDates)], xend = lockDownDates[-1]-1)
   
+  season_cols <- alpha(colour = c("gray", "green4", "orange", "tan4"), alpha = 0.6)
+  
+  season_bars <- data.frame(xstart = as.Date(c("2019-01-01", "2019-03-01", "2019-06-01", 
+                                               "2019-09-01", "2019-12-01")), 
+                            xend = as.Date(c("2019-03-01", "2019-06-01", "2019-09-01", 
+                                               "2019-12-01", "2019-12-31")),
+                            color = c(season_cols, season_cols[1]),
+                            season = c("winter", "spring", "summer", "autmn", "winter")) %>%
+                  dplyr::mutate(xstart = lubridate::`year<-`(xstart, sel_year), 
+                                xend= lubridate::`year<-`(xend, sel_year))
+  
   ggplot2::ggplot(data = ds, ggplot2::aes_string(x = x, y = variable)) + ggplot2::geom_line() + 
     ggplot2::theme(legend.position = "none") +
     ggStyle_ts +
+    geom_segment(data = season_bars, aes(x = xstart, xend = xend), y = ylim[1]-0.25, yend = ylim[1]-0.25,  
+                 col = season_bars$color, lwd = 6, ) + 
     ggplot2::geom_hline(yintercept = mean_overall, col = "green4", lwd = 1, linetype = "dashed") + 
     ggplot2::geom_vline(xintercept = lockDownDates) + 
     ggplot2::geom_vline(xintercept = first_cases, col ="red", linetype = "dashed") + 
     ggplot2::annotate(geom="label", x = lockdownLabs, 
                       y = max(ylim), 
                       label = LETTERS[1:6]) + ggplot2::ylim(ylim) + 
-    geom_segment(data = segment_means_df, aes(x = xstart, xend = xend, y = mean, yend = mean), lwd = 1, col = "blue2") + 
-    ggplot2::scale_x_date(breaks = lockDownDates) 
+    geom_segment(data = segment_means_df, aes(x = xstart, xend = xend, y = mean, yend = mean), lwd = 1, col = "blue2") +
+    ggplot2::scale_x_date(breaks = lockDownDates, expand = c(0,0)) 
     # ggplot2::annotate(geom="text", x = lockDownDates[3] + 40, 
     #                   y = min(ylim), 
     #                   label = paste0("#Subjects: ", n_subs))
@@ -606,11 +619,17 @@ rankTest_pairwise <- function(ds, variable, consider_gender = T){
     fc_stats <- ds %>% filter(Interval %in% intGrp) %>% dplyr::select(ID, Interval, !!sym(variable), AgeCat) %>% 
       tidyr::pivot_wider(names_from = Interval, values_from = !!sym(variable)) %>% mutate(FC = !!sym(intGrp[1])/!!sym(intGrp[2]))  
     
+    print(fc_stats)
+    
     fc_desc <- fc_stats %>% group_by(AgeCat) %>% summarise(FC = paste0(round(mean(FC),3), " ± ", round(sd(FC),3))) %>% 
       tidyr::pivot_wider(names_from = AgeCat, values_from = FC) %>% mutate(Comparison = paste0(intGrp, collapse = ""))
     
     colnames(fc_desc)[1:2] <- c("FC(old)", "FC(young)")
-    fc_wilcox <- fc_stats %>% rstatix::wilcox_test(FC ~AgeCat)
+    
+    fc_wilcox <- fc_stats %>% group_by(AgeCat) %>% count() %>% pivot_wider(id_cols = c(AgeCat, n), names_from = AgeCat, values_from = n)
+    fc_wilcox <- data.frame(Test = "noTest", group1 = colnames(fc_wilcox)[1], group2 = colnames(fc_wilcox)[2], "n1" = as.numeric(fc_wilcox[1,1]), "n2" = as.numeric(fc_wilcox[1,2]), statistic = "noStat", p = 1)
+    
+    try(fc_wilcox <- fc_stats %>% rstatix::wilcox_test(FC ~ AgeCat), silent = T)
     
     cbind(fc_desc, fc_wilcox)
   })
@@ -685,13 +704,17 @@ rankTest_pairwise <- function(ds, variable, consider_gender = T){
       tidyr::pivot_wider(names_from = Gender, values_from = FC) %>% mutate(Comparison = paste0(intGrp, collapse = ""))
     
     colnames(fc_desc)[1:2] <- c("FC(male)", "FC(female)")
-    fc_wilcox <- fc_stats %>% rstatix::wilcox_test(FC ~ Gender)
+    
+    fc_wilcox <- fc_stats %>% group_by(Gender) %>% count() %>% pivot_wider(id_cols = c(Gender, n), names_from = Gender, values_from = n)
+    fc_wilcox <- data.frame(Test = "noTest", group1 = colnames(fc_wilcox)[1], group2 = colnames(fc_wilcox)[2], "n1" = as.numeric(fc_wilcox[1,1]), "n2" = as.numeric(fc_wilcox[1,2]), statistic = "noStat", p = 1)
+    
+    try(fc_wilcox <- fc_stats %>% rstatix::wilcox_test(FC ~ Gender), silent = T)
     
     cbind(fc_desc, fc_wilcox)
   })
   
   fc_stats_pairs_gender <- do.call("rbind", FC_stats)[,-4]
-  fc_stats_pairs_gender <- fc_stats_pairs_gender %>% dplyr::mutate("p.adj(BY)" = p.adjust(p,"BY"))
+  fc_stats_pairs_gender <- fc_stats_pairs_gender %>% as.data.frame() %>% dplyr::mutate("p.adj(BY)" = p.adjust(p,"BY"))
     
      pairs_result_list <- list(stats = stats_groups, 
                                stats_groups_gender = stats_groups_gender,
@@ -902,7 +925,7 @@ absolute
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 Age
 </td>
 <td style="text-align:left;">
@@ -918,7 +941,7 @@ Age
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 female
 </td>
 <td style="text-align:left;">
@@ -929,7 +952,7 @@ female
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 male
 </td>
 <td style="text-align:left;">
@@ -945,7 +968,7 @@ male
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 1CH-ICD
 </td>
 <td style="text-align:left;">
@@ -956,7 +979,7 @@ male
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 2CH-ICD
 </td>
 <td style="text-align:left;">
@@ -967,7 +990,7 @@ male
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 2CH-PM
 </td>
 <td style="text-align:left;">
@@ -978,7 +1001,7 @@ male
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 CRT-D
 </td>
 <td style="text-align:left;">
@@ -989,7 +1012,7 @@ CRT-D
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 CRT-P
 </td>
 <td style="text-align:left;">
@@ -1000,7 +1023,7 @@ CRT-P
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 eventrecorder
 </td>
 <td style="text-align:left;">
@@ -1016,36 +1039,36 @@ eventrecorder
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
+no defibrillator
+</td>
+<td style="text-align:left;">
+7.48
+</td>
+<td style="text-align:left;">
+11
+</td>
+</tr>
+<tr>
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 primary
 </td>
 <td style="text-align:left;">
-54.4
+53.74
 </td>
 <td style="text-align:left;">
-80
+79
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 secondary
 </td>
 <td style="text-align:left;">
-38.8
+38.78
 </td>
 <td style="text-align:left;">
 57
-</td>
-</tr>
-<tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
-unknown
-</td>
-<td style="text-align:left;">
-6.8
-</td>
-<td style="text-align:left;">
-10
 </td>
 </tr>
 </tbody>
@@ -1089,27 +1112,41 @@ n_subjects <- length(unique(ds_activity$ID))
 ### Mean activity and seasonal variations in 2019 and 2020
 
 ``` r
-ylim_y <- ds_act_date %>% summarise(min = floor(min(!!sym(variable))), max = ceiling(max(!!sym(variable)))) %>% as.numeric()
+ylim_y <- ds_act_date %>% summarise(min = floor(min(!!sym(variable))), 
+                                    max = ceiling(max(!!sym(variable)))) %>% as.numeric()
         
-long_plt_19 <- plot_longitude(ds = ds_act_date %>% filter(year == 2019), x = x, variable = variable, ylim = ylim_y, 
-                                lockDownDates = lockDownDates - 365, first_cases = first_cases - 365, lockdownLabs = lockdownLabs - 365, n_subs = n_subjects)
-long_plt_20 <- plot_longitude(ds = ds_act_date %>% filter(year == 2020), x = x, variable = variable, ylim = ylim_y, 
-                                lockDownDates = lockDownDates, first_cases = first_cases, lockdownLabs = lockdownLabs, n_subs = n_subjects)
+
+long_plt_19 <- plot_longitude(ds = ds_act_date %>% filter(year == 2019), 
+                              x = x, variable = variable, ylim = ylim_y, 
+                              lockDownDates = lockDownDates - 365, 
+                              first_cases = first_cases - 365, 
+                              lockdownLabs = lockdownLabs - 365, 
+                              n_subs = n_subjects, sel_year = 2019)
+
+long_plt_20 <- plot_longitude(ds = ds_act_date %>% filter(year == 2020), 
+                              x = x, variable = variable, ylim = ylim_y, 
+                              lockDownDates = lockDownDates, 
+                              first_cases = first_cases, 
+                              lockdownLabs = lockdownLabs, 
+                              n_subs = n_subjects, sel_year = 2020)
   
 long_plot <- cowplot::plot_grid(
     long_plt_19 + 
       ggplot2::xlab("Time intervals") +
       ggplot2::ylab("Mean physical activity (% of day)") +
       ggplot2::ggtitle(label = "2019") + 
-      ggplot2::theme(axis.text.x = ggplot2::element_blank(), 
+      ggplot2::theme(plot.title = ggplot2::element_text(face = "bold.italic"),
+                     axis.text.x = ggplot2::element_blank(), 
                      plot.margin = ggplot2::margin(t = 0, b=0)),
     
     long_plt_20 + 
       ggplot2::xlab("Time intervals") + 
       ggplot2::ylab("Mean physical activity (% of day)") +
-      ggplot2::ggtitle(label = "2019") + 
-      ggplot2::theme(axis.text.x = ggplot2::element_blank(),
-                     plot.margin = ggplot2::margin(t = 0, b=0)),
+      ggplot2::ggtitle(label = "2020") + 
+      ggplot2::theme(plot.title = ggplot2::element_text(face = "bold.italic"),
+                     axis.text.x = ggplot2::element_blank(),
+                     plot.margin = ggplot2::margin(t = 0, b=0),
+                     ),
     nrow = 2,ncol = 1)
 
 long_plot
@@ -1118,13 +1155,13 @@ long_plot
 ![](Analysis_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
 
 ``` r
-ggsave(plot = long_plot, filename = paste0(file_name, "_longitude_plot.pdf"), device = "pdf", height = 7.5, width = 15)
-ggsave(plot = long_plot, filename = paste0(file_name, "_longitude_plot.svg"), device = "svg", height = 7.5, width = 15)
+ggsave(plot = long_plot, filename = paste0(file_name, "_longitude_plot.pdf"), device = "pdf", height = 6, width = 8)
+ggsave(plot = long_plot, filename = paste0(file_name, "_longitude_plot.svg"), device = "svg", height = 6, width = 8)
 ```
 
 ## Mean weekday physical activity of patients
 
-Here we want to analyse the recurring reduction of physical acitvity of
+Here, we want to analyse the recurring reduction of physical acitvity of
 patients during the end of the week, especially on Sundays. We calculate
 the average weekday activity of each patient during each time interval.
 The average weekday activity for each patient at each time interval is
@@ -1396,6 +1433,213 @@ Sun
 </tr>
 <tr>
 <td style="text-align:left;">
+A20
+</td>
+<td style="text-align:left;">
+Fri
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+73.424586
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+A20
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+42.241329
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+A20
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Thu
+</td>
+<td style="text-align:right;">
+11.113518
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0008570
+</td>
+<td style="text-align:right;">
+0.0140346
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+A20
+</td>
+<td style="text-align:left;">
+Sat
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+37.030786
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+A20
+</td>
+<td style="text-align:left;">
+Thu
+</td>
+<td style="text-align:left;">
+Sat
+</td>
+<td style="text-align:right;">
+8.922541
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0028167
+</td>
+<td style="text-align:right;">
+0.0412951
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+A20
+</td>
+<td style="text-align:left;">
+Thu
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+70.940419
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+A20
+</td>
+<td style="text-align:left;">
+Tue
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+45.955321
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+A20
+</td>
+<td style="text-align:left;">
+Tue
+</td>
+<td style="text-align:left;">
+Thu
+</td>
+<td style="text-align:right;">
+10.331717
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0013076
+</td>
+<td style="text-align:right;">
+0.0205402
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+A20
+</td>
+<td style="text-align:left;">
+Wed
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+47.192764
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
 B19
 </td>
 <td style="text-align:left;">
@@ -1622,926 +1866,6 @@ Thu
 </td>
 <td style="text-align:right;">
 0.0225160
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-C19
-</td>
-<td style="text-align:left;">
-Fri
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-81.811761
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-C19
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Fri
-</td>
-<td style="text-align:right;">
-13.579865
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0002286
-</td>
-<td style="text-align:right;">
-0.0039544
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-C19
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-47.853620
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-C19
-</td>
-<td style="text-align:left;">
-Sat
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-58.785595
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-C19
-</td>
-<td style="text-align:left;">
-Thu
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-64.520118
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-C19
-</td>
-<td style="text-align:left;">
-Tue
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-63.128243
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-C19
-</td>
-<td style="text-align:left;">
-Wed
-</td>
-<td style="text-align:left;">
-Fri
-</td>
-<td style="text-align:right;">
-17.778062
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000248
-</td>
-<td style="text-align:right;">
-0.0004549
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-C19
-</td>
-<td style="text-align:left;">
-Wed
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-51.589599
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-D19
-</td>
-<td style="text-align:left;">
-Fri
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-58.640024
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-D19
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-39.877308
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-D19
-</td>
-<td style="text-align:left;">
-Sat
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-58.524579
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-D19
-</td>
-<td style="text-align:left;">
-Thu
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-58.261876
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-D19
-</td>
-<td style="text-align:left;">
-Tue
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-48.744509
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-D19
-</td>
-<td style="text-align:left;">
-Wed
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-50.663806
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-E19
-</td>
-<td style="text-align:left;">
-Fri
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-95.413678
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-E19
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-80.970107
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-E19
-</td>
-<td style="text-align:left;">
-Sat
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-73.553386
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-E19
-</td>
-<td style="text-align:left;">
-Thu
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-91.528385
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-E19
-</td>
-<td style="text-align:left;">
-Tue
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-91.397987
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-E19
-</td>
-<td style="text-align:left;">
-Wed
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-70.565821
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Fri
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-32.657865
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000003
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Sat
-</td>
-<td style="text-align:right;">
-14.729288
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0001241
-</td>
-<td style="text-align:right;">
-0.0022214
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-62.512219
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Thu
-</td>
-<td style="text-align:right;">
-21.645658
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000033
-</td>
-<td style="text-align:right;">
-0.0000656
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Tue
-</td>
-<td style="text-align:right;">
-13.402739
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0002513
-</td>
-<td style="text-align:right;">
-0.0042975
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Wed
-</td>
-<td style="text-align:right;">
-51.510452
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Sat
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-11.358778
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0007509
-</td>
-<td style="text-align:right;">
-0.0124296
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Thu
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-11.636486
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0006467
-</td>
-<td style="text-align:right;">
-0.0108209
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Tue
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-19.247040
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000115
-</td>
-<td style="text-align:right;">
-0.0002210
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Tue
-</td>
-<td style="text-align:left;">
-Wed
-</td>
-<td style="text-align:right;">
-8.929471
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0028061
-</td>
-<td style="text-align:right;">
-0.0412951
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-F19
-</td>
-<td style="text-align:left;">
-Wed
-</td>
-<td style="text-align:left;">
-Fri
-</td>
-<td style="text-align:right;">
-27.840725
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000001
-</td>
-<td style="text-align:right;">
-0.0000029
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-A20
-</td>
-<td style="text-align:left;">
-Fri
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-73.424586
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-A20
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-42.241329
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-A20
-</td>
-<td style="text-align:left;">
-Mon
-</td>
-<td style="text-align:left;">
-Thu
-</td>
-<td style="text-align:right;">
-11.113518
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0008570
-</td>
-<td style="text-align:right;">
-0.0140346
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-A20
-</td>
-<td style="text-align:left;">
-Sat
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-37.030786
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-A20
-</td>
-<td style="text-align:left;">
-Thu
-</td>
-<td style="text-align:left;">
-Sat
-</td>
-<td style="text-align:right;">
-8.922541
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0028167
-</td>
-<td style="text-align:right;">
-0.0412951
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-A20
-</td>
-<td style="text-align:left;">
-Thu
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-70.940419
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-A20
-</td>
-<td style="text-align:left;">
-Tue
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-45.955321
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-A20
-</td>
-<td style="text-align:left;">
-Tue
-</td>
-<td style="text-align:left;">
-Thu
-</td>
-<td style="text-align:right;">
-10.331717
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0013076
-</td>
-<td style="text-align:right;">
-0.0205402
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-A20
-</td>
-<td style="text-align:left;">
-Wed
-</td>
-<td style="text-align:left;">
-Sun
-</td>
-<td style="text-align:right;">
-47.192764
-</td>
-<td style="text-align:right;">
-1
-</td>
-<td style="text-align:right;">
-0.0000000
-</td>
-<td style="text-align:right;">
-0.0000000
 </td>
 </tr>
 <tr>
@@ -2832,6 +2156,190 @@ Sun
 </td>
 <td style="text-align:right;">
 84.706036
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+C19
+</td>
+<td style="text-align:left;">
+Fri
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+81.811761
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+C19
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Fri
+</td>
+<td style="text-align:right;">
+13.579865
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0002286
+</td>
+<td style="text-align:right;">
+0.0039544
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+C19
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+47.853620
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+C19
+</td>
+<td style="text-align:left;">
+Sat
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+58.785595
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+C19
+</td>
+<td style="text-align:left;">
+Thu
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+64.520118
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+C19
+</td>
+<td style="text-align:left;">
+Tue
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+63.128243
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+C19
+</td>
+<td style="text-align:left;">
+Wed
+</td>
+<td style="text-align:left;">
+Fri
+</td>
+<td style="text-align:right;">
+17.778062
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000248
+</td>
+<td style="text-align:right;">
+0.0004549
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+C19
+</td>
+<td style="text-align:left;">
+Wed
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+51.589599
 </td>
 <td style="text-align:right;">
 1
@@ -3144,6 +2652,144 @@ Thu
 </tr>
 <tr>
 <td style="text-align:left;">
+D19
+</td>
+<td style="text-align:left;">
+Fri
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+58.640024
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+D19
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+39.877308
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+D19
+</td>
+<td style="text-align:left;">
+Sat
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+58.524579
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+D19
+</td>
+<td style="text-align:left;">
+Thu
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+58.261876
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+D19
+</td>
+<td style="text-align:left;">
+Tue
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+48.744509
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+D19
+</td>
+<td style="text-align:left;">
+Wed
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+50.663806
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
 D20
 </td>
 <td style="text-align:left;">
@@ -3305,6 +2951,144 @@ Sun
 </tr>
 <tr>
 <td style="text-align:left;">
+E19
+</td>
+<td style="text-align:left;">
+Fri
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+95.413678
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+E19
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+80.970107
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+E19
+</td>
+<td style="text-align:left;">
+Sat
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+73.553386
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+E19
+</td>
+<td style="text-align:left;">
+Thu
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+91.528385
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+E19
+</td>
+<td style="text-align:left;">
+Tue
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+91.397987
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+E19
+</td>
+<td style="text-align:left;">
+Wed
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+70.565821
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
 E20
 </td>
 <td style="text-align:left;">
@@ -3439,6 +3223,259 @@ Sun
 </td>
 <td style="text-align:right;">
 0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Fri
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+32.657865
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000003
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Sat
+</td>
+<td style="text-align:right;">
+14.729288
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0001241
+</td>
+<td style="text-align:right;">
+0.0022214
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+62.512219
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Thu
+</td>
+<td style="text-align:right;">
+21.645658
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000033
+</td>
+<td style="text-align:right;">
+0.0000656
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Tue
+</td>
+<td style="text-align:right;">
+13.402739
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0002513
+</td>
+<td style="text-align:right;">
+0.0042975
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Mon
+</td>
+<td style="text-align:left;">
+Wed
+</td>
+<td style="text-align:right;">
+51.510452
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+<td style="text-align:right;">
+0.0000000
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Sat
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+11.358778
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0007509
+</td>
+<td style="text-align:right;">
+0.0124296
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Thu
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+11.636486
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0006467
+</td>
+<td style="text-align:right;">
+0.0108209
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Tue
+</td>
+<td style="text-align:left;">
+Sun
+</td>
+<td style="text-align:right;">
+19.247040
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000115
+</td>
+<td style="text-align:right;">
+0.0002210
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Tue
+</td>
+<td style="text-align:left;">
+Wed
+</td>
+<td style="text-align:right;">
+8.929471
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0028061
+</td>
+<td style="text-align:right;">
+0.0412951
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+F19
+</td>
+<td style="text-align:left;">
+Wed
+</td>
+<td style="text-align:left;">
+Fri
+</td>
+<td style="text-align:right;">
+27.840725
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0.0000001
+</td>
+<td style="text-align:right;">
+0.0000029
 </td>
 </tr>
 <tr>
@@ -4197,7 +4234,7 @@ A20
 0.0064118
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -4220,7 +4257,7 @@ B19
 0.0180549
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4243,7 +4280,7 @@ B19
 0.0000152
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -4266,7 +4303,7 @@ B20
 0.0192038
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4289,7 +4326,7 @@ C19
 0.0255037
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4312,7 +4349,7 @@ C19
 0.0018904
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -4335,7 +4372,7 @@ C20
 0.0136995
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4358,7 +4395,7 @@ D19
 0.0114430
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4381,7 +4418,7 @@ D20
 0.0114430
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4404,7 +4441,7 @@ E19
 0.0105723
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4427,7 +4464,7 @@ E20
 0.0105723
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4450,7 +4487,7 @@ F19
 0.0105723
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4473,7 +4510,7 @@ F20
 0.0075700
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -4496,7 +4533,7 @@ F20
 0.0000007
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -4519,7 +4556,7 @@ B20
 0.0192038
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4542,7 +4579,7 @@ C20
 0.0133101
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4565,7 +4602,7 @@ C20
 0.0000010
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -4588,7 +4625,7 @@ D20
 0.0133101
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4611,7 +4648,7 @@ D20
 0.0450270
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4634,7 +4671,7 @@ E20
 0.0105723
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4657,7 +4694,7 @@ F20
 0.0087042
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -4680,7 +4717,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -4703,7 +4740,7 @@ A20
 0.0155619
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4726,7 +4763,7 @@ A20
 0.0000001
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -4749,7 +4786,7 @@ B20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -4772,7 +4809,7 @@ C20
 0.0273067
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4795,7 +4832,7 @@ D19
 0.0235744
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4818,7 +4855,7 @@ D20
 0.0281362
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4841,7 +4878,7 @@ D20
 0.0026985
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -4864,7 +4901,7 @@ E19
 0.0202487
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4887,7 +4924,7 @@ E19
 0.0136441
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4910,7 +4947,7 @@ E20
 0.0187975
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4933,7 +4970,7 @@ E20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -4956,7 +4993,7 @@ F19
 0.0243278
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -4979,7 +5016,7 @@ F19
 0.0002897
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -5002,7 +5039,7 @@ F20
 0.0161518
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5025,7 +5062,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5048,7 +5085,7 @@ C20
 0.0367185
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5071,7 +5108,7 @@ C20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5094,7 +5131,7 @@ D20
 0.0348501
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5117,7 +5154,7 @@ D20
 0.0259086
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5140,7 +5177,7 @@ E20
 0.0281362
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5163,7 +5200,7 @@ F20
 0.0211442
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5186,7 +5223,7 @@ F20
 0.0000041
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5209,7 +5246,7 @@ A20
 0.0224067
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5232,7 +5269,7 @@ A20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5255,7 +5292,7 @@ B20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5278,7 +5315,7 @@ C20
 0.0464289
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5301,7 +5338,7 @@ C20
 0.0095322
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -5324,7 +5361,7 @@ D19
 0.0371178
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5347,7 +5384,7 @@ D19
 0.0091303
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -5370,7 +5407,7 @@ D20
 0.0384639
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5393,7 +5430,7 @@ D20
 0.0000186
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5416,7 +5453,7 @@ E19
 0.0325402
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5439,7 +5476,7 @@ E19
 0.0000096
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5462,7 +5499,7 @@ E20
 0.0318966
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5485,7 +5522,7 @@ E20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5508,7 +5545,7 @@ F19
 0.0381803
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5531,7 +5568,7 @@ F19
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5554,7 +5591,7 @@ F20
 0.0198923
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5577,7 +5614,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5600,7 +5637,7 @@ D20
 0.0211442
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5623,7 +5660,7 @@ D20
 0.0099885
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -5646,7 +5683,7 @@ E20
 0.0170972
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5669,7 +5706,7 @@ E20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5692,7 +5729,7 @@ F20
 0.0136995
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5715,7 +5752,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5738,7 +5775,7 @@ A20
 0.0105723
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5761,7 +5798,7 @@ A20
 0.0000010
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5784,7 +5821,7 @@ B20
 0.0280324
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5807,7 +5844,7 @@ B20
 0.0003690
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -5830,7 +5867,7 @@ C20
 0.0176555
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5853,7 +5890,7 @@ D20
 0.0167711
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5876,7 +5913,7 @@ E19
 0.0144794
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5899,7 +5936,7 @@ E20
 0.0144658
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5922,7 +5959,7 @@ E20
 0.0000122
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -5945,7 +5982,7 @@ F19
 0.0157730
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5968,7 +6005,7 @@ F19
 0.0136441
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -5991,7 +6028,7 @@ F20
 0.0105723
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6014,7 +6051,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -6037,7 +6074,7 @@ E20
 0.0179050
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6060,7 +6097,7 @@ E20
 0.0000066
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -6083,7 +6120,7 @@ F20
 0.0137994
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6106,7 +6143,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -6129,7 +6166,7 @@ A20
 0.0105723
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6152,7 +6189,7 @@ A20
 0.0000079
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -6175,7 +6212,7 @@ B20
 0.0273067
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6198,7 +6235,7 @@ B20
 0.0211442
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6221,7 +6258,7 @@ C20
 0.0172322
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6244,7 +6281,7 @@ D20
 0.0161518
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6267,7 +6304,7 @@ E20
 0.0144794
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6290,7 +6327,7 @@ E20
 0.0000947
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -6313,7 +6350,7 @@ F19
 0.0161518
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6336,7 +6373,7 @@ F20
 0.0106240
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6359,7 +6396,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -6382,7 +6419,7 @@ F20
 0.0133101
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6405,7 +6442,7 @@ F20
 0.0000508
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -6428,7 +6465,7 @@ A20
 0.0120599
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6451,7 +6488,7 @@ B20
 0.0299123
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6474,7 +6511,7 @@ C20
 0.0181658
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6497,7 +6534,7 @@ D20
 0.0176951
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6520,7 +6557,7 @@ E20
 0.0161518
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6543,7 +6580,7 @@ F20
 0.0122216
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6566,7 +6603,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 </tbody>
@@ -6806,7 +6843,7 @@ Age
 5.2e-03
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -6829,7 +6866,7 @@ Time-Interval
 8.0e-07
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -6852,7 +6889,7 @@ Age
 5.2e-03
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -6875,7 +6912,7 @@ Time-Interval
 0.0e+00
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 </tbody>
@@ -6884,7 +6921,7 @@ Time-Interval
 The following analysis does not consider gender as a factor, due to the
 non-significant influences shown in the previous analyses. Now, we model
 physical activity depending on age and time. We defined age categories
-young (&lt;70 years) and old (≥70 years).
+young (\<70 years) and old (≥70 years).
 
 ``` r
 age_time <- rankTest_pairwise(ds = ds_act_interval, variable = variable, consider_gender = F)
@@ -6950,7 +6987,7 @@ A20
 0.0000238
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -6973,7 +7010,7 @@ A20
 0.0411092
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -6996,7 +7033,7 @@ B19
 0.0003384
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7019,7 +7056,7 @@ B19
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7042,7 +7079,7 @@ B20
 0.0000923
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7065,7 +7102,7 @@ C19
 0.0001678
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7088,7 +7125,7 @@ C19
 0.0000010
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7111,7 +7148,7 @@ C20
 0.0000498
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7134,7 +7171,7 @@ D19
 0.0000994
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7157,7 +7194,7 @@ D20
 0.0000347
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7180,7 +7217,7 @@ E19
 0.0000338
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7203,7 +7240,7 @@ E20
 0.0000252
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7226,7 +7263,7 @@ E20
 0.0002684
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7249,7 +7286,7 @@ F19
 0.0000338
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7272,7 +7309,7 @@ F20
 0.0000238
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7295,7 +7332,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7318,7 +7355,7 @@ B20
 0.0000571
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7341,7 +7378,7 @@ C20
 0.0000319
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7364,7 +7401,7 @@ C20
 0.0000083
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7387,7 +7424,7 @@ D20
 0.0000254
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7410,7 +7447,7 @@ E20
 0.0000161
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7433,7 +7470,7 @@ E20
 0.0386713
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -7456,7 +7493,7 @@ F20
 0.0000143
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7479,7 +7516,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7502,7 +7539,7 @@ A20
 0.0001123
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7525,7 +7562,7 @@ A20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7548,7 +7585,7 @@ A20
 0.0143163
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -7571,7 +7608,7 @@ B20
 0.0006138
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7594,7 +7631,7 @@ B20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7617,7 +7654,7 @@ C19
 0.0010943
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -7640,7 +7677,7 @@ C20
 0.0002889
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7663,7 +7700,7 @@ C20
 0.0004365
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7686,7 +7723,7 @@ D19
 0.0005179
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7709,7 +7746,7 @@ D19
 0.0080373
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -7732,7 +7769,7 @@ D20
 0.0002228
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7755,7 +7792,7 @@ D20
 0.0000006
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7778,7 +7815,7 @@ E19
 0.0001819
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7801,7 +7838,7 @@ E19
 0.0000035
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7824,7 +7861,7 @@ E20
 0.0001217
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7847,7 +7884,7 @@ E20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7870,7 +7907,7 @@ F19
 0.0001769
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7893,7 +7930,7 @@ F19
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7916,7 +7953,7 @@ F20
 0.0001217
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7939,7 +7976,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -7962,7 +7999,7 @@ C20
 0.0001361
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -7985,7 +8022,7 @@ C20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8008,7 +8045,7 @@ D20
 0.0000992
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8031,7 +8068,7 @@ E20
 0.0000712
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8054,7 +8091,7 @@ F20
 0.0000591
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8077,7 +8114,7 @@ F20
 0.0000001
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8100,7 +8137,7 @@ A20
 0.0000784
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8123,7 +8160,7 @@ A20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8146,7 +8183,7 @@ B20
 0.0003425
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8169,7 +8206,7 @@ B20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8192,7 +8229,7 @@ C20
 0.0002045
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8215,7 +8252,7 @@ C20
 0.0001412
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8238,7 +8275,7 @@ D19
 0.0003243
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8261,7 +8298,7 @@ D19
 0.0009991
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8284,7 +8321,7 @@ D20
 0.0001343
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8307,7 +8344,7 @@ D20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8330,7 +8367,7 @@ E19
 0.0001119
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8353,7 +8390,7 @@ E19
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8376,7 +8413,7 @@ E20
 0.0000972
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8399,7 +8436,7 @@ E20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8422,7 +8459,7 @@ F19
 0.0001091
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8445,7 +8482,7 @@ F19
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8468,7 +8505,7 @@ F20
 0.0000712
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8491,7 +8528,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8514,7 +8551,7 @@ D20
 0.0000663
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8537,7 +8574,7 @@ D20
 0.0002889
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8560,7 +8597,7 @@ E20
 0.0000375
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8583,7 +8620,7 @@ E20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8606,7 +8643,7 @@ F20
 0.0000338
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8629,7 +8666,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8652,7 +8689,7 @@ A20
 0.0000441
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8675,7 +8712,7 @@ A20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8698,7 +8735,7 @@ B20
 0.0002072
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8721,7 +8758,7 @@ B20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8744,7 +8781,7 @@ C20
 0.0000971
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8767,7 +8804,7 @@ D20
 0.0000763
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8790,7 +8827,7 @@ D20
 0.0012864
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -8813,7 +8850,7 @@ E19
 0.0000784
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8836,7 +8873,7 @@ E19
 0.0005105
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -8859,7 +8896,7 @@ E20
 0.0000539
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8882,7 +8919,7 @@ E20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8905,7 +8942,7 @@ F19
 0.0000712
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8928,7 +8965,7 @@ F19
 0.0000160
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8951,7 +8988,7 @@ F20
 0.0000386
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8974,7 +9011,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -8997,7 +9034,7 @@ E20
 0.0000356
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9020,7 +9057,7 @@ E20
 0.0000003
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9043,7 +9080,7 @@ F20
 0.0000325
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9066,7 +9103,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9089,7 +9126,7 @@ A20
 0.0000238
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9112,7 +9149,7 @@ A20
 0.0000027
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9135,7 +9172,7 @@ B20
 0.0000908
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9158,7 +9195,7 @@ B20
 0.0062862
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -9181,7 +9218,7 @@ C20
 0.0000463
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9204,7 +9241,7 @@ D20
 0.0000352
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9227,7 +9264,7 @@ E20
 0.0000292
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9250,7 +9287,7 @@ E20
 0.0000002
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9273,7 +9310,7 @@ F19
 0.0000352
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9296,7 +9333,7 @@ F19
 0.0260835
 </td>
 <td style="text-align:left;">
-&lt;0.05
+\<0.05
 </td>
 </tr>
 <tr>
@@ -9319,7 +9356,7 @@ F20
 0.0000238
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9342,7 +9379,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9365,7 +9402,7 @@ F20
 0.0000265
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9388,7 +9425,7 @@ F20
 0.0000024
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9411,7 +9448,7 @@ A20
 0.0000238
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9434,7 +9471,7 @@ B20
 0.0000869
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9457,7 +9494,7 @@ C20
 0.0000441
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9480,7 +9517,7 @@ C20
 0.0054502
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -9503,7 +9540,7 @@ D20
 0.0000352
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9526,7 +9563,7 @@ E20
 0.0000312
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9549,7 +9586,7 @@ E20
 0.0044783
 </td>
 <td style="text-align:left;">
-&lt;0.01
+\<0.01
 </td>
 </tr>
 <tr>
@@ -9572,7 +9609,7 @@ F20
 0.0000244
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -9595,7 +9632,7 @@ F20
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 </tbody>
@@ -9726,7 +9763,7 @@ p.adj(BY)
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 0.903 ± 0.124
 </td>
 <td style="text-align:left;">
@@ -9749,7 +9786,7 @@ A19B19
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 1.045 ± 0.231
 </td>
 <td style="text-align:left;">
@@ -9772,7 +9809,7 @@ B19C19
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 1.102 ± 0.26
 </td>
 <td style="text-align:left;">
@@ -9795,7 +9832,7 @@ C19D19
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 1.087 ± 0.212
 </td>
 <td style="text-align:left;">
@@ -9818,7 +9855,7 @@ D19E19
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 1.059 ± 0.255
 </td>
 <td style="text-align:left;">
@@ -9846,7 +9883,7 @@ E19F19
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 1.08 ± 0.619
 </td>
 <td style="text-align:left;">
@@ -9869,7 +9906,7 @@ A20B20
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 0.937 ± 0.149
 </td>
 <td style="text-align:left;">
@@ -9892,7 +9929,7 @@ B20C20
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 1.049 ± 0.187
 </td>
 <td style="text-align:left;">
@@ -9915,7 +9952,7 @@ C20D20
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 1.093 ± 0.137
 </td>
 <td style="text-align:left;">
@@ -9938,7 +9975,7 @@ D20E20
 </td>
 </tr>
 <tr>
-<td style="text-align:left; padding-left: 2em;" indentlevel="1">
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
 1.206 ± 0.742
 </td>
 <td style="text-align:left;">
@@ -10309,7 +10346,7 @@ Age
 2.8e-05
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -10329,7 +10366,7 @@ Time-Interval
 0.0e+00
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -10349,7 +10386,7 @@ Age
 8.0e-06
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -10369,7 +10406,7 @@ Time-Interval
 0.0e+00
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 </tbody>
@@ -10429,7 +10466,7 @@ old
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -10452,7 +10489,7 @@ young
 0.0003631
 </td>
 <td style="text-align:left;">
-&lt;0.001
+\<0.001
 </td>
 </tr>
 <tr>
@@ -10475,7 +10512,7 @@ old
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 <tr>
@@ -10498,7 +10535,7 @@ young
 0.0000000
 </td>
 <td style="text-align:left;">
-&lt;0.0001
+\<0.0001
 </td>
 </tr>
 </tbody>
@@ -10606,7 +10643,7 @@ bxp1920_rhr
 ## AAB within 2019 and 2020
 
 ``` r
-variable = "ArtrialArrhythmicBurden"
+variable = "AtrialArrhythmicBurden"
 
 plot.dir <- file.path(super_plot.dir, variable)
   
@@ -10618,6 +10655,8 @@ file_name <- file.path(plot.dir, paste0(variable,""))
 
 ds_aab_filter <- filter_complete_dataset(ds = data_set, variable = variable)
 ds_aab_interval <- summarise_intervals(ds = ds_aab_filter, variable = variable)
+
+ds_aab_interval <- ds_aab_interval %>% filter(!!sym(variable) != 0) %>% group_by(ID) %>% mutate(n = length(ID)) %>% filter(n == 12) %>% dplyr::select(-n)
 
 age_time_aab <- rankTest_pairwise(ds = ds_aab_interval, variable = variable, consider_gender = T)
 
