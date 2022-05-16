@@ -5,7 +5,7 @@ Carsten Jungbauer<sup>c</sup>, Stefan Frantz<sup>a</sup>, Stefan Störk<sup>d</s
 
 <sup>a</sup> Medizinische Klinik und Poliklinik I, Universitätsklinikum Würzburg, Germany  
 <sup>b</sup> Institut für Informatik, Martin-Luther-Universität Halle-Wittenberg, Germany  
-<sup>c</sup> Klinik und Poliklinik für Innere Medizin II, Universitätsklinikum Regensburg, Germany
+<sup>c</sup> Klinik und Poliklinik für Innere Medizin II, Universitätsklinikum Regensburg, Germany  
 <sup>d</sup> Deutsches Zentrum für Herzinsuffizienz (DZHI), Universität und Universitätsklinikum Würzburg, Germany
 
 Reproducible Script
