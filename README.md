@@ -1,11 +1,12 @@
 # Impact of coronavirus disease (COVID-19) pandemic on physical activity of patients with cardiac implantable electronic devices 
 
 Moritz T. Huttelmaier<sup>a</sup>, Alexander Gabel<sup>b</sup>, Maria S. Seewald<sup>a</sup>, 
-Stefan Frantz<sup>a</sup>, Stefan Störk<sup>c</sup>, Thomas H. Fischer<sup>a</sup>
+Carsten Jungbauer<sup>c</sup>, Stefan Frantz<sup>a</sup>, Stefan Störk<sup>d</sup>, Thomas H. Fischer<sup>a</sup>
 
 <sup>a</sup> Medizinische Klinik und Poliklinik I, Universitätsklinikum Würzburg, Germany  
 <sup>b</sup> Institut für Informatik, Martin-Luther-Universität Halle-Wittenberg, Germany  
-<sup>c</sup> Deutsches Zentrum für Herzinsuffizienz (DZHI), Universität und Universitätsklinikum Würzburg, Germany
+<sup>c</sup> Klinik und Poliklinik für Innere Medizin II, Universitätsklinikum Regensburg, Germany
+<sup>d</sup> Deutsches Zentrum für Herzinsuffizienz (DZHI), Universität und Universitätsklinikum Würzburg, Germany
 
 Reproducible Script
 ================
@@ -873,7 +874,7 @@ data_set$Weekday <- factor(data_set$Weekday, levels = w_days)
 ## General information (Table 1)
 
 ``` r
-vars <- c("Age", "Gender", "Device", "Indication")
+vars <- c("Age", "Gender", "Activity", "Device", "Indication")
 
 general_information <- sapply(vars, function(variable){
   df <- c()
@@ -882,6 +883,12 @@ general_information <- sapply(vars, function(variable){
     df <- data_set %>% dplyr::select(ID,!!sym(variable)) %>% unique() %>% summarise( Feature = "Age",
                                                                                      'relative' =  paste0(round(median(!!sym(variable)),1), " ± ", round(mad(!!sym(variable)),1)),
                                                                                      'absolute' = "(Median(Age) ± MAD(Age))")
+    
+  }else if(variable == "Activity"){
+    
+    df <- summarise_intervals(ds = filter_complete_dataset(ds = data_set, variable = variable), variable = "Activity") %>%
+          group_by(year) %>% summarise('relative' = paste0(format(mean(!!sym(variable)),digits = 3), " ± ", format(sd(!!sym(variable)),digits = 2)),
+                                       'absolute' = "(Mean(Activity) ± SD(Activity))") %>% dplyr::rename(Feature = year)
     
   }else{
     
@@ -901,8 +908,9 @@ rownames(general_information) <- general_information$Feature
 kable(general_information[,-1], row.names = T) %>% 
   kableExtra::pack_rows("Age", 1, 1) %>%
   kableExtra::pack_rows("Gender", 2, 3) %>%
-  kableExtra::pack_rows("Device", 4, 9) %>%
-  kableExtra::pack_rows("Indication", 10, 12) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F, position = "left")
+  kableExtra::pack_rows("Mean physical activity, % of day", 4, 5) %>%
+  kableExtra::pack_rows("Device", 6, 11) %>%
+  kableExtra::pack_rows("Indication", 12, 14) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F, position = "left")
 ```
 
 <table class="table table-striped table-hover table-condensed" style="width: auto !important; ">
@@ -960,6 +968,33 @@ male
 </td>
 <td style="text-align:left;">
 112
+</td>
+</tr>
+<tr grouplength="2">
+<td colspan="3" style="border-bottom: 1px solid;">
+<strong>Mean physical activity, % of day</strong>
+</td>
+</tr>
+<tr>
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
+2019
+</td>
+<td style="text-align:left;">
+12.4 ± 6.5
+</td>
+<td style="text-align:left;">
+(Mean(Activity) ± SD(Activity))
+</td>
+</tr>
+<tr>
+<td style="text-align:left;padding-left: 2em;" indentlevel="1">
+2020
+</td>
+<td style="text-align:left;">
+11.5 ± 6.3
+</td>
+<td style="text-align:left;">
+(Mean(Activity) ± SD(Activity))
 </td>
 </tr>
 <tr grouplength="6">
@@ -1119,7 +1154,7 @@ ylim_y <- ds_act_date %>% summarise(min = floor(min(!!sym(variable))),
 long_plt_19 <- plot_longitude(ds = ds_act_date %>% filter(year == 2019), 
                               x = x, variable = variable, ylim = ylim_y, 
                               lockDownDates = lockDownDates - 365, 
-                              first_cases = first_cases - 365, 
+                              first_cases = NULL, 
                               lockdownLabs = lockdownLabs - 365, 
                               n_subs = n_subjects, sel_year = 2019)
 
